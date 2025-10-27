@@ -178,13 +178,13 @@ void create_ev_dashboard_ui() {
 
   // Menu button (left)
   lv_obj_t *menu_btn = lv_label_create(top_bar);
-  lv_label_set_text(menu_btn, "≡ Menu");
+  lv_label_set_text(menu_btn, "Menu");
   lv_obj_set_style_text_font(menu_btn, &lv_font_montserrat_16, 0);
   lv_obj_align(menu_btn, LV_ALIGN_LEFT_MID, 10, 0);
 
   // Map button (right)
   lv_obj_t *map_btn = lv_label_create(top_bar);
-  lv_label_set_text(map_btn, "⚲ Map");
+  lv_label_set_text(map_btn, "Map");
   lv_obj_set_style_text_font(map_btn, &lv_font_montserrat_16, 0);
   lv_obj_align(map_btn, LV_ALIGN_RIGHT_MID, -10, 0);
 
@@ -228,13 +228,13 @@ void create_ev_dashboard_ui() {
   lv_label_set_text(mode_text, "Mode");
   lv_obj_set_style_text_color(mode_text, lv_color_black(), 0);
   lv_obj_set_style_text_font(mode_text, &lv_font_montserrat_14, 0);
-  lv_obj_align(mode_text, LV_ALIGN_TOP_MID, 0, 5);
+  lv_obj_align(mode_text, LV_ALIGN_TOP_MID, 0, 3);
 
   mode_label = lv_label_create(mode_container);
   lv_label_set_text(mode_label, "Eco");
   lv_obj_set_style_text_color(mode_label, lv_color_hex(0x00cc00), 0);
   lv_obj_set_style_text_font(mode_label, &lv_font_montserrat_20, 0);
-  lv_obj_align(mode_label, LV_ALIGN_CENTER, 0, 5);
+  lv_obj_align(mode_label, LV_ALIGN_CENTER, 0, 15);
 
   /* Left side info */
   range_label = lv_label_create(scr);
