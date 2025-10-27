@@ -1,42 +1,29 @@
-/* LVGL with Arduino - Two Screen Navigation
-   Screen 1: Button to navigate
-   Screen 2: Serial input display with back button
-*/
+#include <FS.h>
+#include <SD.h>
+#include <SPI.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include <Arduino.h>
 #include <Wire.h>
 #include <GT911.h>
 
-/* Screen resolution */
-#define TFT_HOR_RES   480
-#define TFT_VER_RES   320
+#define SD_CS 5
+#define TFT_HOR_RES 480
+#define TFT_VER_RES 320
 
-/* LVGL draw buffer size (1/10 of screen) */
-#define DRAW_BUF_SIZE (TFT_HOR_RES * TFT_VER_RES / 10 * (LV_COLOR_DEPTH / 8))
-
-/* I2C touch pins */
+/* Touch pins */
 #define TOUCH_SDA  33
 #define TOUCH_SCL  32
 #define TOUCH_INT  21
 #define TOUCH_RST  25
 
-/* Global objects */
-void *draw_buf;
-unsigned long lastTickMillis = 0;
 GT911 ts = GT911();
+void *draw_buf;
 
-/* Screen objects */
-lv_obj_t *screen1;  // Home screen
-lv_obj_t *screen2;  // Serial display screen
+/* Buffer to store image data in RAM */
+uint8_t *image_data = NULL;
+uint32_t image_size = 0;
 
-/* Screen 2 UI elements */
-lv_obj_t *textarea;
-lv_obj_t *status_label;
-lv_obj_t *counter_label;
-int message_count = 0;
-
-/* Touch read callback */
+/* Touch callback */
 void my_touch_read(lv_indev_t * indev, lv_indev_data_t * data) {
   uint8_t touches = ts.touched(GT911_MODE_POLLING);
   if (touches) {
@@ -49,218 +36,146 @@ void my_touch_read(lv_indev_t * indev, lv_indev_data_t * data) {
   }
 }
 
-/* Navigate to Serial Monitor Screen */
-void goto_serial_screen(lv_event_t * e) {
-  Serial.println("Navigating to Serial Monitor screen...");
-  lv_scr_load(screen2);
-}
-
-/* Navigate back to Home Screen */
-void goto_home_screen(lv_event_t * e) {
-  Serial.println("Navigating to Home screen...");
-  lv_scr_load(screen1);
-}
-
-/* Add message to serial display */
-void add_message_to_display(String msg) {
-  Serial.println("Adding message to display...");
+/* Load image from SD card into RAM */
+bool load_image_to_ram(const char *path) {
+  Serial.printf("Loading image: %s\n", path);
   
-  message_count++;
+  File file = SD.open(path);
+  if (!file) {
+    Serial.println("ERROR: Failed to open image file!");
+    return false;
+  }
   
-  // Update counter
-  char counter_text[32];
-  snprintf(counter_text, sizeof(counter_text), "%d msgs", message_count);
-  lv_label_set_text(counter_label, counter_text);
+  image_size = file.size();
+  Serial.printf("Image size: %u bytes\n", image_size);
   
-  // Build message with timestamp
-  unsigned long time_sec = millis() / 1000;
-  char full_message[256];
-  snprintf(full_message, sizeof(full_message), "[%02lu:%02lu] %s\n", 
-           time_sec / 60, time_sec % 60, msg.c_str());
+  // Allocate memory for image
+  image_data = (uint8_t *)malloc(image_size);
+  if (!image_data) {
+    Serial.println("ERROR: Failed to allocate memory for image!");
+    file.close();
+    return false;
+  }
   
-  // Add to textarea
-  lv_textarea_add_text(textarea, full_message);
+  // Read entire file into RAM
+  size_t bytes_read = file.read(image_data, image_size);
+  file.close();
   
-  // Scroll to bottom
-  lv_obj_scroll_to_y(textarea, LV_COORD_MAX, LV_ANIM_OFF);
+  if (bytes_read != image_size) {
+    Serial.printf("ERROR: Read %u bytes, expected %u\n", bytes_read, image_size);
+    free(image_data);
+    image_data = NULL;
+    return false;
+  }
   
-  // Update status
-  lv_label_set_text(status_label, "New Message!");
-  
-  Serial.println("Message added successfully");
-}
-
-/* Create Screen 1 - Home Screen */
-void create_screen1() {
-  screen1 = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen1, lv_color_hex(0x1a1a1a), 0);
-  
-  /* Title label */
-  lv_obj_t *label = lv_label_create(screen1);
-  lv_label_set_text(label, "LVGL Navigation Demo");
-  lv_obj_set_style_text_color(label, lv_color_white(), 0);
-  lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
-  lv_obj_align(label, LV_ALIGN_CENTER, 0, -60);
-  
-  /* Instruction label */
-  lv_obj_t *inst_label = lv_label_create(screen1);
-  lv_label_set_text(inst_label, "Press button to view Serial Monitor");
-  lv_obj_set_style_text_color(inst_label, lv_color_hex(0xaaaaaa), 0);
-  lv_obj_align(inst_label, LV_ALIGN_CENTER, 0, 0);
-  
-  /* Button to go to serial screen */
-  lv_obj_t *btn = lv_btn_create(screen1);
-  lv_obj_set_size(btn, 200, 60);
-  lv_obj_align(btn, LV_ALIGN_CENTER, 0, 80);
-  lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
-  
-  lv_obj_t *btn_label = lv_label_create(btn);
-  lv_label_set_text(btn_label, "Serial Monitor");
-  lv_obj_set_style_text_font(btn_label, &lv_font_montserrat_18, 0);
-  lv_obj_center(btn_label);
-  
-  lv_obj_add_event_cb(btn, goto_serial_screen, LV_EVENT_CLICKED, NULL);
-  
-  Serial.println("Screen 1 created");
-}
-
-/* Create Screen 2 - Serial Display Screen */
-void create_screen2() {
-  screen2 = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(screen2, lv_color_hex(0x1a1a1a), 0);
-  
-  /* Top Status Bar */
-  lv_obj_t *top_panel = lv_obj_create(screen2);
-  lv_obj_set_size(top_panel, TFT_HOR_RES, 50);
-  lv_obj_align(top_panel, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_style_bg_color(top_panel, lv_color_hex(0x2196F3), 0);
-  lv_obj_set_style_border_width(top_panel, 0, 0);
-  lv_obj_set_style_radius(top_panel, 0, 0);
-  
-  status_label = lv_label_create(top_panel);
-  lv_label_set_text(status_label, "Serial Monitor");
-  lv_obj_set_style_text_color(status_label, lv_color_white(), 0);
-  lv_obj_set_style_text_font(status_label, &lv_font_montserrat_18, 0);
-  lv_obj_align(status_label, LV_ALIGN_LEFT_MID, 10, 0);
-  
-  counter_label = lv_label_create(top_panel);
-  lv_label_set_text(counter_label, "0 msgs");
-  lv_obj_set_style_text_color(counter_label, lv_color_white(), 0);
-  lv_obj_set_style_text_font(counter_label, &lv_font_montserrat_14, 0);
-  lv_obj_align(counter_label, LV_ALIGN_RIGHT_MID, -10, 0);
-  
-  /* Main Text Area */
-  textarea = lv_textarea_create(screen2);
-  lv_obj_set_size(textarea, TFT_HOR_RES - 20, TFT_VER_RES - 130);
-  lv_obj_align(textarea, LV_ALIGN_TOP_MID, 0, 60);
-  lv_textarea_set_text(textarea, "Waiting for serial data...\n");
-  
-  lv_obj_set_style_bg_color(textarea, lv_color_hex(0x2d2d2d), 0);
-  lv_obj_set_style_text_color(textarea, lv_color_hex(0x00ff00), 0);
-  lv_obj_set_style_border_color(textarea, lv_color_hex(0x2196F3), 0);
-  lv_obj_set_style_border_width(textarea, 2, 0);
-  lv_obj_set_style_radius(textarea, 8, 0);
-  lv_obj_set_style_text_font(textarea, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_pad_all(textarea, 10, 0);
-  
-  lv_textarea_set_one_line(textarea, false);
-  lv_obj_set_scrollbar_mode(textarea, LV_SCROLLBAR_MODE_AUTO);
-  
-  /* Back Button */
-  lv_obj_t *back_btn = lv_btn_create(screen2);
-  lv_obj_set_size(back_btn, 120, 50);
-  lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
-  lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x666666), 0);
-  
-  lv_obj_t *back_label = lv_label_create(back_btn);
-  lv_label_set_text(back_label, "< Back");
-  lv_obj_set_style_text_font(back_label, &lv_font_montserrat_16, 0);
-  lv_obj_center(back_label);
-  
-  lv_obj_add_event_cb(back_btn, goto_home_screen, LV_EVENT_CLICKED, NULL);
-  
-  Serial.println("Screen 2 created");
+  Serial.println("Image loaded into RAM successfully!");
+  return true;
 }
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
-  Serial.println("\n=== LVGL Two Screen Navigation ===");
-  Serial.println("Send messages via Serial Monitor");
-  Serial.println("They will appear on Screen 2\n");
+  Serial.println("\n=== LVGL SD Card Image Display ===");
+  
+  /* Initialize SD Card FIRST, before display */
+  Serial.println("Initializing SD Card...");
+  SPIClass spi = SPIClass(VSPI);
+  spi.begin(18, 19, 23, SD_CS);  // SCK, MISO, MOSI, CS
+  
+  if (!SD.begin(SD_CS, spi)) {
+    Serial.println("ERROR: SD Card mount failed!");
+    while (1) delay(1000);
+  }
+  Serial.println("SD Card mounted!");
+  
+  /* List files */
+  Serial.println("\nFiles in /lvgl:");
+  File root = SD.open("/lvgl");
+  if (root) {
+    File file = root.openNextFile();
+    while (file) {
+      Serial.printf("  - %s (%d bytes)\n", file.name(), file.size());
+      file = root.openNextFile();
+    }
+    root.close();
+  }
+  
+  /* Load image into RAM before initializing display */
+  if (!load_image_to_ram("/lvgl/logo1.bin")) {
+    Serial.println("ERROR: Failed to load image!");
+    while (1) delay(1000);
+  }
+  
+  /* Now we can close SD card - image is in RAM */
+  SD.end();
+  Serial.println("SD card closed, image is now in RAM");
   
   /* Initialize LVGL */
   lv_init();
+  Serial.println("LVGL initialized");
   
-  /* Initialize I2C for touch */
+  /* Initialize touch */
   Wire.begin(TOUCH_SDA, TOUCH_SCL);
-  
-  /* Initialize GT911 touch */
   ts.begin(TOUCH_INT, TOUCH_RST);
-  Serial.println("Touch controller initialized");
+  Serial.println("Touch initialized");
   
-  /* Allocate LVGL draw buffer */
-  draw_buf = heap_caps_malloc(DRAW_BUF_SIZE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  /* Allocate draw buffer */
+  draw_buf = heap_caps_malloc(
+    TFT_HOR_RES * 40 * (LV_COLOR_DEPTH / 8),
+    MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL
+  );
+  
   if (!draw_buf) {
-    Serial.println("Failed to allocate LVGL draw buffer!");
-    while(1);
+    Serial.println("ERROR: Draw buffer allocation failed!");
+    while (1) delay(1000);
   }
-  Serial.printf("Draw buffer allocated: %d bytes\n", DRAW_BUF_SIZE);
+  Serial.println("Draw buffer allocated");
   
-  /* Initialize TFT display for LVGL */
-  lv_display_t * disp = lv_tft_espi_create(TFT_HOR_RES, TFT_VER_RES, draw_buf, DRAW_BUF_SIZE);
-  Serial.println("Display initialized");
+  /* Create display */
+  lv_display_t *disp = lv_tft_espi_create(
+    TFT_HOR_RES, 
+    TFT_VER_RES, 
+    draw_buf, 
+    TFT_HOR_RES * 40 * (LV_COLOR_DEPTH / 8)
+  );
+  Serial.println("Display created");
   
-  /* Setup touch input device for LVGL */
-  lv_indev_t * indev = lv_indev_create();
+  /* Setup touch input */
+  lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, my_touch_read);
   Serial.println("Touch input configured");
   
-  /* Create both screens */
-  create_screen1();
-  create_screen2();
+  /* Create UI */
+  lv_obj_t *scr = lv_scr_act();
+  lv_obj_set_style_bg_color(scr, lv_color_white(), 0);
   
-  /* Load home screen first */
-  lv_scr_load(screen1);
+  /* Title */
+  lv_obj_t *label = lv_label_create(scr);
+  lv_label_set_text(label, "Charge Into The Future");
+  lv_obj_set_style_text_color(label, lv_color_black(), 0);
+  lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -64);
   
-  Serial.println("=== Setup Complete ===");
-  Serial.println("Touch the button to navigate!\n");
+  /* Create image descriptor pointing to RAM data */
+  static lv_image_dsc_t img_dsc;
+  img_dsc.header.cf = LV_COLOR_FORMAT_RGB565;  // FIXED: Changed for LVGL v9
+  img_dsc.header.w = 148;   // Change to your image width  //240
+  img_dsc.header.h = 148;   // Change to your image height  //148
+  img_dsc.data_size = image_size;
+  img_dsc.data = image_data;
+  
+  /* Display image from RAM */
+  Serial.println("Creating image widget...");
+  lv_obj_t *img = lv_image_create(scr);  // FIXED: lv_image_create for LVGL v9
+  lv_image_set_src(img, &img_dsc);       // FIXED: lv_image_set_src for LVGL v9
+  lv_obj_align(img, LV_ALIGN_CENTER, 0, 4);
+  
+  Serial.println("\n=== Setup Complete ===");
+  Serial.println("Image should now be visible!");
+  Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
 }
 
-unsigned long last_status_reset = 0;
-
 void loop() {
-  /* Calculate elapsed time for LVGL tick */
-  unsigned long tickPeriod = millis() - lastTickMillis;
-  lastTickMillis = millis();
-  
-  /* Update LVGL tick */
-  lv_tick_inc(tickPeriod);
-  
-  /* Handle LVGL tasks */
   lv_timer_handler();
-  
-  /* Reset status label on screen 2 */
-  if (millis() - last_status_reset > 2000 && last_status_reset > 0) {
-    lv_label_set_text(status_label, "Serial Monitor");
-    last_status_reset = 0;
-  }
-  
-  /* Handle serial input */
-  if (Serial.available()) {
-    String serialInput = Serial.readStringUntil('\n');
-    serialInput.trim();
-    
-    if (serialInput.length() > 0) {
-      Serial.printf("Received: %s\n", serialInput.c_str());
-      
-      // Add message to screen 2
-      add_message_to_display(serialInput);
-      
-      last_status_reset = millis();
-    }
-  }
-  
   delay(5);
 }
