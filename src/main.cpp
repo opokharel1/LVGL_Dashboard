@@ -18,6 +18,7 @@
 
 GT911 ts = GT911();
 void *draw_buf;
+lv_display_t *disp; // MAKE GLOBAL
 
 /* Buffer to store image data in RAM */
 uint8_t *image_data = NULL;
@@ -108,15 +109,18 @@ void update_time_display() {
 
 /* Update dashboard values */
 void update_dashboard() {
+  Serial.println("=== Updating dashboard ===");
   char buf[32];
   
   // Speed
   snprintf(buf, sizeof(buf), "%d", speed);
   lv_label_set_text(speed_label, buf);
+  Serial.printf("Speed: %s\n", buf);
   
   // Range
   snprintf(buf, sizeof(buf), "Range %d km", range);
   lv_label_set_text(range_label, buf);
+  Serial.printf("Range: %s\n", buf);
   
   // Avg W/km
   snprintf(buf, sizeof(buf), "Avg. %d W/km", avg_wh);
@@ -144,12 +148,19 @@ void update_dashboard() {
   
   // Mode
   lv_label_set_text(mode_label, mode.c_str());
+  Serial.printf("Mode: %s\n", mode.c_str());
   
   // Status
   lv_label_set_text(status_label, status.c_str());
+  Serial.printf("Status: %s\n", status.c_str());
   
   // Time
   update_time_display();
+  
+  // CRITICAL: Force display refresh
+  lv_refr_now(disp);
+  Serial.println("Display refreshed");
+  Serial.println("========================");
 }
 
 /* Create EV Dashboard UI */
@@ -293,49 +304,70 @@ void create_ev_dashboard_ui() {
 
 /* Parse serial input and update values */
 void parse_serial_input(String input) {
-  // Format: "speed:99,range:130,avg_wh:40,trip:130,odo:1300,avg_kmh:40,motor:30,battery:30,mode:Eco,status:ARMED"
+  Serial.println("=== Parsing input ===");
+  Serial.printf("Input: %s\n", input.c_str());
   
   int idx;
   
   if ((idx = input.indexOf("speed:")) >= 0) {
-    speed = input.substring(idx + 6, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    speed = input.substring(idx + 6, comma_pos).toInt();
+    Serial.printf("Parsed speed: %d\n", speed);
   }
   if ((idx = input.indexOf("range:")) >= 0) {
-    range = input.substring(idx + 6, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    range = input.substring(idx + 6, comma_pos).toInt();
+    Serial.printf("Parsed range: %d\n", range);
   }
   if ((idx = input.indexOf("avg_wh:")) >= 0) {
-    avg_wh = input.substring(idx + 7, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    avg_wh = input.substring(idx + 7, comma_pos).toInt();
   }
   if ((idx = input.indexOf("trip:")) >= 0) {
-    trip = input.substring(idx + 5, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    trip = input.substring(idx + 5, comma_pos).toInt();
   }
   if ((idx = input.indexOf("odo:")) >= 0) {
-    odo = input.substring(idx + 4, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    odo = input.substring(idx + 4, comma_pos).toInt();
   }
   if ((idx = input.indexOf("avg_kmh:")) >= 0) {
-    avg_kmh = input.substring(idx + 8, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    avg_kmh = input.substring(idx + 8, comma_pos).toInt();
   }
   if ((idx = input.indexOf("motor:")) >= 0) {
-    motor_temp = input.substring(idx + 6, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    motor_temp = input.substring(idx + 6, comma_pos).toInt();
   }
   if ((idx = input.indexOf("battery:")) >= 0) {
-    battery_temp = input.substring(idx + 8, input.indexOf(',', idx)).toInt();
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    battery_temp = input.substring(idx + 8, comma_pos).toInt();
   }
   if ((idx = input.indexOf("mode:")) >= 0) {
-    int end = input.indexOf(',', idx);
-    if (end < 0) end = input.length();
-    mode = input.substring(idx + 5, end);
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    mode = input.substring(idx + 5, comma_pos);
     mode.trim();
+    Serial.printf("Parsed mode: %s\n", mode.c_str());
   }
   if ((idx = input.indexOf("status:")) >= 0) {
-    int end = input.indexOf(',', idx);
-    if (end < 0) end = input.length();
-    status = input.substring(idx + 7, end);
+    int comma_pos = input.indexOf(',', idx);
+    if (comma_pos < 0) comma_pos = input.length();
+    status = input.substring(idx + 7, comma_pos);
     status.trim();
+    Serial.printf("Parsed status: %s\n", status.c_str());
   }
   
+  Serial.println("Parsing complete, updating dashboard...");
   update_dashboard();
-  Serial.println("Dashboard updated");
 }
 
 void setup() {
@@ -382,8 +414,8 @@ void setup() {
     while (1) delay(1000);
   }
 
-  /* Create display */
-  lv_display_t *disp = lv_tft_espi_create(
+  /* Create display - MAKE GLOBAL */
+  disp = lv_tft_espi_create(
       TFT_HOR_RES, TFT_VER_RES, draw_buf,
       TFT_HOR_RES * 40 * (LV_COLOR_DEPTH / 8));
 
